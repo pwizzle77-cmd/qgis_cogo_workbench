@@ -7,7 +7,7 @@ ArcPy, services, or network access are required. Independent of Esri.
 ## Install
 
 1. In QGIS, open **Plugins → Manage and Install Plugins → Install from ZIP**.
-2. Select `dist/cogo_workbench-1.1.2.zip` from this repository.
+2. Select `dist/cogo_workbench-1.1.3.zip` from this repository.
 3. Enable **COGO Workbench**. Open it from the toolbar or **Vector → COGO Workbench**.
 
 Alternatively, copy the `cogo_workbench` directory into the active QGIS profile's
