@@ -1,0 +1,12 @@
+[general]
+name=COGO Workbench
+description=Paste legal descriptions, traverse, circular curves, closure, parcels and COGO updates.
+version=1.1.1
+qgisMinimumVersion=3.40
+qgisMaximumVersion=4.99
+author=COGO Workbench contributors
+email=
+about=Pure Python coordinate geometry tools for legal descriptions. Uses QGIS and its bundled Qt only. Projected planar calculations with explicit ground-to-grid settings.
+category=Vector
+experimental=False
+supportsQt6=True

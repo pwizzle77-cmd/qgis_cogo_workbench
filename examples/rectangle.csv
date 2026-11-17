@@ -1,0 +1,5 @@
+kind,direction,distance,radius,measure,side,basis
+Line,N00:00:00E,100,,Arc,R,Tangent
+Line,N90:00:00E,200,,Arc,R,Tangent
+Line,S00:00:00E,100,,Arc,R,Tangent
+Line,N90:00:00W,200,,Arc,R,Tangent

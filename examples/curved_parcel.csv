@@ -1,0 +1,3 @@
+kind,direction,distance,radius,measure,side,basis
+Curve,N00:00:00E,180,100,Delta,R,Tangent
+Line,W,200,,Arc,R,Tangent
