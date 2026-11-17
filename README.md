@@ -7,7 +7,7 @@ ArcPy, services, or network access are required. Independent of Esri.
 ## Install
 
 1. In QGIS, open **Plugins → Manage and Install Plugins → Install from ZIP**.
-2. Select `dist/cogo_workbench-1.1.1.zip` from this repository.
+2. Select `dist/cogo_workbench-1.1.2.zip` from this repository.
 3. Enable **COGO Workbench**. Open it from the toolbar or **Vector → COGO Workbench**.
 
 Alternatively, copy the `cogo_workbench` directory into the active QGIS profile's
@@ -183,3 +183,7 @@ a correctly sized polygon from extracted boundary calls.
 Workflow references: [ArcGIS Pro Traverse](https://pro.arcgis.com/en/pro-app/3.5/help/editing/create-a-traverse.htm),
 [Update COGO](https://pro.arcgis.com/en/pro-app/3.0/tool-reference/editing/update-cogo.htm),
 [QGIS circular geometry API](https://api.qgis.org/api/3.44/classQgsCircularString.html).
+
+## License
+
+GNU General Public License v2.0 or later. See `LICENSE`.

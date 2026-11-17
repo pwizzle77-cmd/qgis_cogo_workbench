@@ -1,9 +1,11 @@
+import os
+
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QIcon
 try:
     from qgis.PyQt.QtGui import QAction
 except ImportError:
     from qgis.PyQt.QtWidgets import QAction
-from qgis.core import QgsApplication
 
 
 class CogoWorkbench:
@@ -12,7 +14,7 @@ class CogoWorkbench:
         self.dock = None
 
     def initGui(self):
-        self.action = QAction(QgsApplication.getThemeIcon('/mActionMeasure.svg'),
+        self.action = QAction(QIcon(os.path.join(os.path.dirname(__file__), 'icon.png')),
                               'COGO Workbench', self.iface.mainWindow())
         self.action.triggered.connect(self.show)
         self.iface.addPluginToVectorMenu('COGO Workbench', self.action)

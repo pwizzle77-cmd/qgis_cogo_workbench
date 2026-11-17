@@ -13,9 +13,10 @@ target = root / 'dist' / f'cogo_workbench-{version}.zip'
 target.parent.mkdir(exist_ok=True)
 with ZipFile(target, 'w', ZIP_DEFLATED) as archive:
     for path in sorted(plugin.iterdir()):
-        if path.is_file() and path.suffix in ('.py', '.txt'):
+        if path.is_file() and path.suffix in ('.py', '.txt', '.png'):
             archive.write(path, f'cogo_workbench/{path.name}')
     archive.write(root / 'README.md', 'cogo_workbench/README.md')
+    archive.write(root / 'LICENSE', 'cogo_workbench/LICENSE')
     for path in sorted((root / 'examples').iterdir()):
         if path.is_file() and path.suffix in ('.csv', '.txt'):
             archive.write(path, f'cogo_workbench/examples/{path.name}')
@@ -23,5 +24,6 @@ with ZipFile(target) as archive:
     assert archive.testzip() is None
     assert {'cogo_workbench/__init__.py', 'cogo_workbench/metadata.txt',
             'cogo_workbench/dock.py', 'cogo_workbench/legal.py',
-            'cogo_workbench/examples/legal_rectangle.txt'}.issubset(archive.namelist())
+            'cogo_workbench/examples/legal_rectangle.txt',
+            'cogo_workbench/LICENSE', 'cogo_workbench/icon.png'}.issubset(archive.namelist())
 print(target)

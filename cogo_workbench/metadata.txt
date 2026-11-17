@@ -1,12 +1,21 @@
 [general]
 name=COGO Workbench
-description=Paste legal descriptions, traverse, circular curves, closure, parcels and COGO updates.
-version=1.1.1
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
-author=COGO Workbench contributors
-email=
-about=Pure Python coordinate geometry tools for legal descriptions. Uses QGIS and its bundled Qt only. Projected planar calculations with explicit ground-to-grid settings.
+description=Coordinate geometry (COGO) tools: paste legal descriptions, enter traverses with circular curves, check closure and build parcels.
+version=1.1.2
+author=Charles
+email=pwizzle77@gmail.com
+about=COGO Workbench brings an ArcGIS Pro style course-entry workflow to QGIS. Paste a metes-and-bounds legal description and review every extracted call against its source clause before loading, or enter bearings, distances and circular curves by hand. The plugin reports misclosure and precision, can apply a Bowditch (compass rule) adjustment, and writes boundary lines or parcel polygons with true circular arcs. Calculations are planar in a projected CRS with explicit ground-to-grid scale and rotation settings. Pure Python: uses only QGIS, its bundled Qt and the standard library, with no external dependencies or network access. Independent of Esri.
+tracker=https://github.com/pwizzle77-cmd/qgis_cogo_workbench/issues
+repository=https://github.com/pwizzle77-cmd/qgis_cogo_workbench
+homepage=https://github.com/pwizzle77-cmd/qgis_cogo_workbench
+changelog=
+    1.1.2 - Plugin repository packaging: icon, license, metadata links
+tags=cogo,coordinate geometry,traverse,legal description,metes and bounds,survey,parcel,curve,closure,bearing,distance,cadastre
 category=Vector
+icon=icon.png
 experimental=False
+deprecated=False
+hasProcessingProvider=no
 supportsQt6=True
