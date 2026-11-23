@@ -180,6 +180,70 @@ class LayerTests(unittest.TestCase):
         QgsProject.instance().removeAllMapLayers()
         canvas.deleteLater()
 
+    def test_parcel_shapes_build_polygons_and_corners(self):
+        from cogo_workbench.dock import CogoDock
+        from test_shapes import CURVED, STRAIGHT, lines_through, ring_area
+        canvas = QgsMapCanvas()
+
+        class Iface:
+            def mainWindow(self):
+                return None
+
+            def mapCanvas(self):
+                return canvas
+
+        dock = CogoDock(Iface())
+        dock.crs.setCrs(self.crs)
+        dock.x.setText('0')
+        dock.y.setText('0')
+        shapes = [(name, lines_through(points), ring_area(points), len(points))
+                  for name, (points, _corners) in STRAIGHT.items()]
+        shapes.extend((name, courses, area, corners) for name, (courses, area, corners) in CURVED.items())
+        shapes.append(('state-plane clockwise square', lines_through([
+            (500000, 1000000), (500100, 1000000), (500100, 999900), (500000, 999900)]), 10000, 4))
+        for name, courses, area, corners in shapes:
+            with self.subTest(name=name):
+                QgsProject.instance().removeAllMapLayers()
+                dock.table.setRowCount(0)
+                if name.startswith('state-plane'):
+                    dock.x.setText('500000')
+                    dock.y.setText('1000000')
+                else:
+                    dock.x.setText('0')
+                    dock.y.setText('0')
+                for course in courses:
+                    dock.add_course(course)
+                dock.create_polygon()
+                dock.create_points()
+                layers = list(QgsProject.instance().mapLayers().values())
+                polygon = next(layer for layer in layers if layer.name() == 'COGO parcel')
+                points = next(layer for layer in layers if layer.name() == 'COGO corners')
+                feature = next(polygon.getFeatures())
+                self.assertAlmostEqual(feature.geometry().area(), area, places=4)
+                self.assertAlmostEqual(feature['area_grid'], area, places=4)
+                self.assertEqual(points.featureCount(), corners)
+                self.assertTrue(feature.geometry().isGeosValid())
+        QgsProject.instance().removeAllMapLayers()
+        dock.table.setRowCount(0)
+        dock.add_course(Course('Line', 'N', '100'))
+        dock.add_course(Course('Line', 'E', '100'))
+        with self.assertRaisesRegex(ValueError, 'open'):
+            dock.create_polygon()
+        dock.table.setRowCount(0)
+        dock.add_course(Course('Line', 'E', '100'))
+        dock.add_course(Course('Line', 'W', '100'))
+        with self.assertRaisesRegex(ValueError, 'nonzero'):
+            dock.create_polygon()
+        dock.table.setRowCount(0)
+        for course in lines_through([(0, 0), (100, 100), (0, 100), (100, 0)]):
+            dock.add_course(course)
+        with self.assertRaisesRegex(ValueError, 'valid'):
+            dock.create_polygon()
+        self.assertEqual(QgsProject.instance().count(), 0)
+        dock.cleanup()
+        dock.deleteLater()
+        canvas.deleteLater()
+
     def test_legal_review_load_and_blocking(self):
         from cogo_workbench.dock import CogoDock
         from test_legal import RECTANGLE
@@ -238,6 +302,12 @@ class LayerTests(unittest.TestCase):
         self.assertTrue(dock.legal_load.isEnabled())
         dock.load_legal()
         self.assertEqual(len(dock.courses()), 5)
+        from cogo_workbench.deed_dialog import DeedReaderDialog
+        dialog = DeedReaderDialog(dock, None)
+        self.assertEqual(dialog.provider.currentData(), 'ollama')
+        self.assertIn('localhost', dialog.url.text())
+        dialog.close()
+        dialog.deleteLater()
         dock.cleanup()
         dock.deleteLater()
         QgsProject.instance().removeAllMapLayers()

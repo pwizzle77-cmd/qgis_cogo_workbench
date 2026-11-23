@@ -65,6 +65,42 @@ class LegalTests(unittest.TestCase):
         self.assertTrue(all(row.phase == 'Boundary' for row in rows))
         self.assertEqual(len(self.calls(text)), 4)
 
+    def test_running_calls_and_curve_wording(self):
+        section9 = (
+            "Section 9: For a POINT OF BEGINNING, commence at the SE corner of the SW of the SW 1/4 of "
+            "the NE 1/4 of Section 9, Township 4 South, Range 16 East, thence run West along the South line "
+            "of said SW 1/4 a distance of 208 feet; thence run North parallel to the East line of the "
+            "SW 1/4, a distance of 208 feet; thence run East parallel to the South line of the "
+            "SW 1/4 a distance of 208 feet; thence run South along said East line a distance of 208 feet "
+            "and to the POINT OF BEGINNING.")
+        courses = self.calls(section9)
+        self.assertEqual([c.direction for c in courses], ['W', 'N', 'E', 'S'])
+        self.assertEqual([c.distance for c in courses], ['208', '208', '208', '208'])
+        self.assertAlmostEqual(closure(traverse((0, 0), courses), (0, 0))[2], 0, places=6)
+        along = ("Beginning at a monument; thence North 45°00'00\" East along the property line 50 feet; "
+                 "thence South, 50 feet to the point of beginning.")
+        self.assertEqual([c.distance for c in self.calls(along)], ['50', '50'])
+        mixed = parse_description("thence North 100 feet East 50 feet")
+        self.assertTrue(any(row.issue for row in mixed))
+        self.assertFalse(any(row.course for row in mixed))
+        curve = (
+            "Thence along the arc of a curve to the right, concave Westerly, having a radius of 100 feet, "
+            "a central angle of 180 degrees, an arc length of 314.159265 feet, a chord bearing of North "
+            "and a chord distance of 200 feet; thence South, 200 feet")
+        courses = self.calls(curve)
+        self.assertEqual(courses[0].kind, 'Curve')
+        self.assertEqual(courses[0].side, 'R')
+        self.assertAlmostEqual(closure(traverse((0, 0), courses), (0, 0))[2], 0, places=4)
+        circle = (
+            "Thence along the arc of a curve to the right, concave Easterly, having a radius of 50 feet, "
+            "a central angle of 180 degrees, an arc length of 157.079633 feet, a chord bearing of North "
+            "and a chord distance of 100 feet; thence along the arc of a curve to the right, concave "
+            "Westerly, having a radius of 50 feet, a central angle of 180 degrees, an arc length of "
+            "157.079633 feet, a chord bearing of South and a chord distance of 100 feet")
+        courses = self.calls(circle)
+        self.assertEqual([c.kind for c in courses], ['Curve', 'Curve'])
+        self.assertAlmostEqual(closure(traverse((0, 0), courses), (0, 0))[2], 0, places=4)
+
     def test_curves(self):
         for turn in ['right', 'left']:
             text = f'Thence along a curve to the {turn}, radius of 100 feet, arc length of 157.079633 feet, chord bearing N45E, chord distance of 141.421356 feet'

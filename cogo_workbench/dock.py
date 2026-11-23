@@ -7,7 +7,7 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDockW
     QFileDialog, QFormLayout, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
     QVBoxLayout, QWidget)
-from qgis.core import (Qgis, QgsCoordinateTransform, QgsCsException, QgsCurvePolygon,
+from qgis.core import (Qgis, QgsCircularString, QgsCoordinateTransform, QgsCsException, QgsCurvePolygon,
     QgsFeature, QgsField, QgsGeometry, QgsLineString, QgsPoint, QgsPointXY,
     QgsProject, QgsUnitTypes, QgsVectorLayer)
 from qgis.gui import QgsMapToolEmitPoint, QgsProjectionSelectionWidget, QgsRubberBand
@@ -22,6 +22,33 @@ HEADERS = ['Type', 'Direction', 'Distance / value', 'Radius', 'Measure', 'Turn',
 CSV_HEADERS = ['kind', 'direction', 'distance', 'radius', 'measure', 'side', 'basis']
 UNITS = {'CRS units': None, 'Meters': 1.0, 'International feet': 0.3048,
          'US survey feet': 1200 / 3937}
+
+
+def _closed_ring(segments, gap):
+    """Exterior ring closed onto its start.
+
+    A gap that is only rounding is snapped onto the start. Inserting a stub
+    that short makes the ring cross the first course, so a clockwise or
+    concave lot is reported as self-intersecting.
+    """
+    geometry = boundary_geometry(segments)
+    ring = geometry.constGet().clone()
+    start, end = segments[0].start, segments[-1].end
+    span = max(abs(start[0]), abs(start[1]), abs(end[0]), abs(end[1]), 1.0)
+    if gap > max(1e-8, span * 1e-12):
+        ring.addCurve(QgsLineString([QgsPoint(end[0], end[1]), QgsPoint(start[0], start[1])]))
+        return ring, gap
+    curve = ring.curveAt(ring.nCurves() - 1).clone()
+    points = [curve.pointN(index) for index in range(curve.numPoints())]
+    points[-1] = QgsPoint(start[0], start[1])
+    if isinstance(curve, QgsCircularString):
+        snapped = QgsCircularString()
+        snapped.setPoints(points)
+    else:
+        snapped = QgsLineString(points)
+    ring.removeCurve(ring.nCurves() - 1)
+    ring.addCurve(snapped)
+    return ring, 0.0
 
 
 class CogoDock(QDockWidget):
@@ -158,6 +185,7 @@ class CogoDock(QDockWidget):
             'and returns to that same point. All calls will be retained; verify this interpretation.')
         layout.addWidget(self.legal_boundary_only)
         self.button(layout, 'Extract calls for review', self.extract_legal)
+        self.button(layout, 'Read a deed or document…', self.open_deed)
         self.legal_review = QTableWidget(0, 3)
         self.legal_review.setHorizontalHeaderLabels(['Extracted call / units', 'Review', 'Source text'])
         self.legal_review.setColumnWidth(0, 180)
@@ -247,6 +275,13 @@ class CogoDock(QDockWidget):
                 matches = unit == row.unit
             if not matches:
                 raise ValueError(f'Selected units disagree with the description: {row.unit}.')
+        self.load_courses(courses, unit)
+
+    def load_courses(self, courses, unit):
+        if not courses:
+            raise ValueError('No boundary courses to load.')
+        if unit not in UNITS:
+            raise ValueError('Choose the record distance units first.')
         self.settings()
         traverse((number(self.x.text(), 'Start X'), number(self.y.text(), 'Start Y')), courses)
         self.table.setRowCount(0)
@@ -257,10 +292,13 @@ class CogoDock(QDockWidget):
         self.target_x.clear()
         self.target_y.clear()
         self.rubber.reset(Qgis.GeometryType.Line)
-        self.report.setPlainText('Reviewed boundary calls loaded; previous course table replaced. '
-            'Verify the start point is the POB, then use Preview / closure. '
-            'No features have been created.')
+        self.report.setPlainText('Reviewed courses loaded. The start point must be the point of beginning. '
+            'Use Preview / closure, then Create corner points. No features have been created.')
         self.tabs.setCurrentIndex(0)
+
+    def open_deed(self):
+        from .deed_dialog import DeedReaderDialog
+        DeedReaderDialog(self, self).exec()
 
     @staticmethod
     def spin(value, low, high, decimals):
@@ -366,14 +404,12 @@ class CogoDock(QDockWidget):
         gap = math.hypot(end[0] - start[0], end[1] - start[1])
         if gap > self.tolerance.value():
             raise ValueError(f'Boundary is open by {gap:.8f} CRS units. Correct the calls or adjust to the start point.')
-        geometry = boundary_geometry(segments)
-        ring = geometry.constGet().clone()
-        if gap > 0:
-            ring.addCurve(QgsLineString([QgsPoint(*end), QgsPoint(*start)]))
+        ring, gap = _closed_ring(segments, gap)
         curve_polygon = QgsCurvePolygon()
         curve_polygon.setExteriorRing(ring)
         polygon = QgsGeometry(curve_polygon)
-        if polygon.isEmpty() or polygon.area() <= 0 or not polygon.isGeosValid():
+        # A there-and-back course leaves a sliver around 1e-12. Reject that, not a thin lot.
+        if polygon.isEmpty() or polygon.area() <= 1e-8 or not polygon.isGeosValid():
             raise ValueError('Boundary does not form a valid, nonzero polygon. Check crossings and course order.')
         layer = QgsVectorLayer('CurvePolygon', 'COGO parcel', 'memory')
         layer.setCrs(crs)
@@ -525,10 +561,10 @@ in proportion to course length and is available for straight courses only.
 Record inputs remain in record_* fields; adjusted=1 marks adjusted line output.
 CSV exports retain the original entered courses.</p>
 <h3>Outputs and edits</h3><p>Each course becomes a separate COGO line with true
-circular geometry, including true curves in parcel polygons. A gap within
-tolerance is closed with a straight connector and
-recorded as closure_gap. Larger gaps are rejected. Self-crossing and zero-area
-polygons are rejected. Corner points include course endpoints, not arc centers.</p>
+circular geometry, including true curves in parcel polygons. A gap that is only
+rounding is snapped onto the start. A larger gap within tolerance is closed with
+a straight connector and recorded as closure_gap. Larger gaps are rejected.
+Self-crossing and zero-area polygons are rejected. Corner points include course endpoints, not arc centers.</p>
 <p>New layers are temporary: export to GeoPackage to preserve them and true line
 curves. Update COGO modifies selected features in the active layer only, adds
 missing measurement fields, and never changes geometry. Use QGIS Undo or roll
@@ -551,8 +587,18 @@ load the boundary into Traverse, replacing its course table. This resets Bowditc
 and closure targets, retains CRS/start/scale/offset, and creates no features.
 Use Preview / closure and the normal output buttons afterward. Changed source
 text requires extraction and review again.</p>
+<p>A running call such as “West along the south line, 208 feet” is one course.
+“Along” or “parallel” names the line being followed. A curve written with
+concave or convex wording still needs an explicit left or right, a radius,
+an arc, chord or delta, and a labeled chord or tangent bearing. A caption
+that only names a section is not a course.</p>
+<p>Read a deed or document sends each page image to a model you choose. Ollama
+stays on this computer. xAI (Grok) sends the images to api.x.ai and needs
+XAI_API_KEY or a QGIS authentication config. The model must quote the deed.
+Review the calls, load them into Traverse, set the point of beginning, then
+create corner points. Nothing is drawn before that.</p>
 <p>Exceptions, approximate calls, implicit directions, unsupported units, and
-conflicting curve dimensions require manual resolution. OCR, spirals, automatic
+conflicting curve dimensions require manual resolution. Spirals, automatic
 parcel topology, and boundary adjudication are outside this tool.</p>
 <p>Verify calls, control, units and closure before relying on a boundary. This
 tool does not determine a legal boundary or replace a licensed survey.</p>'''

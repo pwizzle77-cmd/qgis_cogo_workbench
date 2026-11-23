@@ -1,13 +1,16 @@
 # COGO Workbench for QGIS
 
 A pure Python plugin inspired by the course-entry workflow of ArcGIS Pro COGO.
-Uses QGIS, its bundled Qt, and the Python standard library. No pip packages,
-ArcPy, services, or network access are required. Independent of Esri.
+Uses QGIS, its bundled Qt, and the Python standard library. No pip packages or
+ArcPy. Independent of Esri. Paste and traverse stay on this computer. Reading a
+deed is optional: a local Ollama model never leaves the machine, or xAI (Grok)
+sends page images to `https://api.x.ai` when you set `XAI_API_KEY` or a QGIS
+authentication config. The key is not stored in the plugin.
 
 ## Install
 
 1. In QGIS, open **Plugins → Manage and Install Plugins → Install from ZIP**.
-2. Select `dist/cogo_workbench-1.1.3.zip` from this repository.
+2. Select `dist/cogo_workbench-1.2.0.zip` from this repository.
 3. Enable **COGO Workbench**. Open it from the toolbar or **Vector → COGO Workbench**.
 
 Alternatively, copy the `cogo_workbench` directory into the active QGIS profile's
@@ -49,6 +52,13 @@ semicolons, or separate lines that begin with a bearing. Wrapped prose stays
 together. Numbered lists and Markdown bold formatting are accepted. Calls can
 put “along [named line], a distance of …” between the bearing and distance.
 Recognized preambles, course-list headings and acreage annotations appear as context rows.
+A caption that only names a section, township or range is context, not a course.
+`West along the south line, 208 feet` and `North parallel to the east line 208 feet`
+are one course each: the other compass words name the line being followed.
+`along the property line 50 feet` is read when it does not also say `distance of`.
+Two distances in one clause stay unresolved. A description that says
+“For a point of beginning, commence at the corner, thence …” and returns to that
+point is the boundary, not a separate commencement tie.
 
 Curves require an explicit **curve to the right/left**, radius, **arc length**,
 **chord length/distance**, or **delta/central angle**, plus a labeled **chord
@@ -61,10 +71,34 @@ for manual resolution. Tangent directions are not inferred from preceding calls.
 The parser runs entirely offline. It extracts conventional explicit calls, not
 every form of legal prose. Missing directions, exceptions, approximate distances,
 unsupported units and unmatched clauses remain visible for resolution. It does
-not look up monuments, geocode a parcel, extract PDF images, or choose survey
-control. For a commencement description, the coordinates you supply must be the
-POB; the plugin does not compute it from the excluded ties. Paste one description
-at a time (100,000 characters and 2,000 clauses maximum).
+not look up monuments, geocode a parcel, or choose survey control. For a
+commencement description, the coordinates you supply must be the POB; the plugin
+does not compute it from the excluded ties. Paste one description at a time
+(100,000 characters and 2,000 clauses maximum).
+
+Wording such as “along the arc of a curve to the right, concave westerly” is a
+normal curve when the turn, radius, arc or chord or delta, and a labeled chord
+or tangent bearing are all written down. Chord-only input is still the minor arc.
+Tangent directions are still not inferred from the previous course.
+
+## Read a deed
+
+On **Paste description**, choose **Read a deed or document**. Pick a PDF, PNG,
+JPG or TIF. Every page is rendered and sent as an image; text embedded in a PDF
+is not used. **Ollama (local)** is the default (`ollama pull deepseek-ocr`, with
+`qwen2.5vl` or `gemma4` as fallbacks). **xAI (Grok)** uses model `grok-4.7` at
+`https://api.x.ai/v1`. Set `XAI_API_KEY` in the environment, or select a QGIS
+Basic authentication config whose password is the key. A custom
+OpenAI-compatible server is the third choice; use HTTPS unless it is on this
+computer.
+
+The offline parser reads the description first. **Ask AI about unread calls**
+sends only the clauses the parser could not read, and only after you have a
+model selected. The model must quote the deed. A call is dropped when the quote
+is not in the text or a number in the call is not in the quote. Review every
+call, choose the record units, and **Load courses into Traverse**. Then set the
+point of beginning, **Preview / closure**, and **Create corner points**. No
+layer is created by the reader. Hosted models can charge for the request.
 
 ## Traverse from a legal description
 
@@ -90,9 +124,9 @@ at a time (100,000 characters and 2,000 clauses maximum).
    creates a new temporary layer. Export it to GeoPackage to preserve the result.
 
 Lines and polygons retain true circular geometry. A polygon must return to its start within
-the entered tolerance (in CRS units); a small remaining gap becomes a closing
-straight connector and is recorded in `closure_gap`. Crossing and zero-area
-polygons are rejected. For an open traverse adjusted to other control, polygon
+the entered tolerance (in CRS units). A gap that is only rounding is snapped onto the
+start. A larger gap inside that tolerance becomes a closing straight connector and is
+recorded in `closure_gap`. Crossing and zero-area polygons are rejected. For an open traverse adjusted to other control, polygon
 creation still requires closure back to the starting point.
 
 Import/export course tables using the CSV schema in `examples/`. Import validates
@@ -146,9 +180,10 @@ documented for this plugin and are not an Esri geodatabase schema.
 
 ## Scope and limits
 
-No unrestricted deed interpretation, OCR, spirals, automatic datum/convergence/ground
+No unrestricted deed interpretation, spirals, automatic datum/convergence/ground
 corrections, parcel fabric, automatic topology adjudication, or external
-dependencies. Record calls, control, unit conversions, curve choice and closure
+dependencies. Deed reading is optional and still requires you to check every
+call. Record calls, control, unit conversions, curve choice and closure
 must be independently verified. This tool does not establish a legal boundary
 or substitute for a licensed survey.
 
@@ -161,6 +196,8 @@ Pure math and parser tests (any Python 3.9+):
 ```powershell
 python -m unittest discover -s tests -p test_engine.py -v
 python -m unittest discover -s tests -p test_legal.py -v
+python -m unittest discover -s tests -p test_deed_ai.py -v
+python -m unittest discover -s tests -p test_shapes.py -v
 ```
 
 QGIS integration and math tests on Windows (adjust installation path):
