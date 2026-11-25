@@ -1,4 +1,5 @@
 import csv
+import json
 import math
 
 from qgis.PyQt.QtCore import Qt
@@ -7,15 +8,15 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDockW
     QFileDialog, QFormLayout, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
     QPlainTextEdit, QPushButton, QScrollArea, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
     QVBoxLayout, QWidget)
-from qgis.core import (Qgis, QgsCircularString, QgsCoordinateTransform, QgsCsException, QgsCurvePolygon,
-    QgsFeature, QgsField, QgsGeometry, QgsLineString, QgsPoint, QgsPointXY,
-    QgsProject, QgsUnitTypes, QgsVectorLayer)
+from qgis.core import (Qgis, QgsCircularString, QgsCoordinateReferenceSystem, QgsCoordinateTransform,
+    QgsCsException, QgsCurvePolygon, QgsFeature, QgsField, QgsGeometry, QgsLineString, QgsPoint,
+    QgsPointXY, QgsProject, QgsUnitTypes, QgsVectorLayer)
 from qgis.gui import QgsMapToolEmitPoint, QgsProjectionSelectionWidget, QgsRubberBand
 from qgis.PyQt.QtCore import QVariant
 
 from .engine import Course, bowditch, closure, format_bearing, inverse, number, traverse
 from .layers import boundary_geometry, line_layer, update_selected
-from .legal import parse_description
+from .legal import parse_description, units_match
 
 
 HEADERS = ['Type', 'Direction', 'Distance / value', 'Radius', 'Measure', 'Turn', 'Bearing basis']
@@ -54,6 +55,7 @@ def _closed_ring(segments, gap):
 class CogoDock(QDockWidget):
     def __init__(self, iface):
         super().__init__('COGO Workbench', iface.mainWindow())
+        self._restoring = True
         self.setObjectName('CogoWorkbenchDock')
         self.iface = iface
         self.canvas = iface.mapCanvas()
@@ -129,7 +131,8 @@ class CogoDock(QDockWidget):
         self.button(row, 'Create polygon', self.create_polygon)
         self.button(row, 'Create corner points', self.create_points)
         layout.addLayout(row)
-        temporary = QLabel('Outputs are temporary layers. Export them to GeoPackage to keep them.')
+        temporary = QLabel('Outputs are temporary layers. Export them to GeoPackage to keep them. '
+                           'The course table is saved in the QGIS project.')
         temporary.setWordWrap(True)
         layout.addWidget(temporary)
         self.add_course()
@@ -164,6 +167,10 @@ class CogoDock(QDockWidget):
         help_page.setHtml(HELP)
         self.tabs.addTab(help_page, 'Help')
         self.visibilityChanged.connect(self.visibility_changed)
+        self._connect_session()
+        QgsProject.instance().readProject.connect(self._load_session)
+        QgsProject.instance().cleared.connect(self._reset_session)
+        self._load_session()
 
     def setup_legal_tab(self):
         self.legal_page = QWidget()
@@ -267,13 +274,7 @@ class CogoDock(QDockWidget):
         if self.legal_units.currentIndex() == 0:
             raise ValueError('Choose the record distance units first.')
         for row in boundary:
-            if not row.course or not row.unit:
-                continue
-            if row.unit == 'Feet (choose definition)':
-                matches = unit in ('International feet', 'US survey feet')
-            else:
-                matches = unit == row.unit
-            if not matches:
+            if row.course and not units_match(row.unit, unit):
                 raise ValueError(f'Selected units disagree with the description: {row.unit}.')
         self.load_courses(courses, unit)
 
@@ -340,11 +341,13 @@ class CogoDock(QDockWidget):
             if col in choices:
                 widget = QComboBox()
                 widget.addItems(choices[col])
+                widget.currentTextChanged.connect(self._save_session)
                 widget.setCurrentText(value)
                 self.table.setCellWidget(row, col, widget)
             else:
                 self.table.setItem(row, col, QTableWidgetItem(value))
         self.table.resizeColumnsToContents()
+        self._save_session()
 
     def courses(self):
         result = []
@@ -363,6 +366,7 @@ class CogoDock(QDockWidget):
             rows.add(self.table.currentRow())
         for row in sorted(rows, reverse=True):
             self.table.removeRow(row)
+        self._save_session()
 
     def calculate(self):
         crs, factor, offset, unit = self.settings()
@@ -453,6 +457,18 @@ class CogoDock(QDockWidget):
             raise ValueError('Activate a vector line layer first.')
         if layer.crs() != crs:
             raise ValueError('Set the working CRS to the active layer CRS before updating COGO.')
+        count = layer.selectedFeatureCount()
+        if count <= 0:
+            raise ValueError('Select the COGO line features to update first.')
+        answer = QMessageBox.question(
+            self, 'Update COGO',
+            f'Update {count} selected feature(s) on "{layer.name()}"?\n'
+            'Fields such as distance, direction, bearing and side are rewritten. '
+            'Undo is available until you save the layer.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
         count = update_selected(layer, factor, offset, unit, self.missing.isChecked())
         self.iface.messageBar().pushSuccess('COGO', f'Updated {count} selected lines. Review edits, then save or roll back in QGIS.')
 
@@ -534,7 +550,100 @@ class CogoDock(QDockWidget):
             self.rubber.reset(Qgis.GeometryType.Line)
             self.restore_tool()
 
+    def _connect_session(self):
+        self.units.currentTextChanged.connect(self._save_session)
+        self.scale.valueChanged.connect(self._save_session)
+        self.offset.valueChanged.connect(self._save_session)
+        self.tolerance.valueChanged.connect(self._save_session)
+        self.adjust.toggled.connect(self._save_session)
+        self.x.textChanged.connect(self._save_session)
+        self.y.textChanged.connect(self._save_session)
+        self.target_x.textChanged.connect(self._save_session)
+        self.target_y.textChanged.connect(self._save_session)
+        self.table.itemChanged.connect(self._save_session)
+        self.crs.crsChanged.connect(self._save_session)
+
+    def _save_session(self, *_args):
+        if self._restoring:
+            return
+        payload = {
+            'crs': self.crs.crs().authid(),
+            'units': self.units.currentText(),
+            'scale': self.scale.value(),
+            'offset': self.offset.value(),
+            'x': self.x.text(),
+            'y': self.y.text(),
+            'target_x': self.target_x.text(),
+            'target_y': self.target_y.text(),
+            'tolerance': self.tolerance.value(),
+            'adjust': self.adjust.isChecked(),
+            'courses': [vars(course) for course in self.courses()],
+        }
+        QgsProject.instance().writeEntry('CogoWorkbench', 'session', json.dumps(payload))
+
+    def _load_session(self, *_args):
+        from qgis.PyQt import sip
+        if sip.isdeleted(self):
+            return
+        raw, ok = QgsProject.instance().readEntry('CogoWorkbench', 'session', '')
+        self._restoring = True
+        try:
+            if not ok or not raw:
+                return
+            data = json.loads(raw)
+            courses = [Course(**row) for row in data['courses']]
+            authid = data.get('crs') or ''
+            if authid:
+                crs = QgsCoordinateReferenceSystem(authid)
+                if crs.isValid():
+                    self.crs.setCrs(crs)
+            if data.get('units') in UNITS:
+                self.units.setCurrentText(data['units'])
+            self.scale.setValue(float(data.get('scale', 1)))
+            self.offset.setValue(float(data.get('offset', 0)))
+            self.x.setText(str(data.get('x', '0')))
+            self.y.setText(str(data.get('y', '0')))
+            self.target_x.setText(str(data.get('target_x', '')))
+            self.target_y.setText(str(data.get('target_y', '')))
+            self.tolerance.setValue(float(data.get('tolerance', 0.01)))
+            self.adjust.setChecked(bool(data.get('adjust', False)))
+            self.table.setRowCount(0)
+            for course in courses:
+                self.add_course(course)
+            if self.table.rowCount() == 0:
+                self.add_course()
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+            return
+        finally:
+            self._restoring = False
+
+    def _reset_session(self):
+        from qgis.PyQt import sip
+        if sip.isdeleted(self):
+            return
+        self._restoring = True
+        try:
+            self.table.setRowCount(0)
+            self.add_course()
+            self.units.setCurrentIndex(0)
+            self.scale.setValue(1)
+            self.offset.setValue(0)
+            self.x.setText('0')
+            self.y.setText('0')
+            self.target_x.clear()
+            self.target_y.clear()
+            self.tolerance.setValue(0.01)
+            self.adjust.setChecked(False)
+        finally:
+            self._restoring = False
+
     def cleanup(self):
+        project = QgsProject.instance()
+        for signal, slot in ((project.readProject, self._load_session), (project.cleared, self._reset_session)):
+            try:
+                signal.disconnect(slot)
+            except TypeError:
+                pass
         self.restore_tool()
         self.canvas.scene().removeItem(self.rubber)
 
@@ -544,8 +653,10 @@ HELP = '''<h2>COGO Workbench</h2>
 appropriate for the property. Calculations are planar, with no automatic geodesic,
 magnetic declination, convergence, or elevation correction.</p>
 <h3>Directions and curves</h3><p>North azimuths increase clockwise. Quadrant bearings
-accept N45:30:00E, N45°30'00"E, or N45.5E. Decimal 45.3030 means decimal degrees,
-not packed DMS. For an arc, Direction refers to the start tangent or chord.
+accept N45:30:00E, N45°30'00"E, N. 45° E., or N45.5E. On this grid, 45.3030 means decimal degrees,
+not packed DMS. Paste rejects a four-digit fraction such as 00.2013 and asks for 00:20:13.
+Due east, north, south and west are shown as E, N, S and W. For an arc, Direction refers to the start tangent or chord.
+“The chord of which bears” is a chord bearing.
 R turns clockwise, L counterclockwise. Delta is decimal degrees or separated DMS.
 Chord input chooses the minor arc; use Arc or Delta for a major arc. Enter the
 next course direction explicitly, including tangent continuations.</p>
@@ -566,8 +677,9 @@ rounding is snapped onto the start. A larger gap within tolerance is closed with
 a straight connector and recorded as closure_gap. Larger gaps are rejected.
 Self-crossing and zero-area polygons are rejected. Corner points include course endpoints, not arc centers.</p>
 <p>New layers are temporary: export to GeoPackage to preserve them and true line
-curves. Update COGO modifies selected features in the active layer only, adds
-missing measurement fields, and never changes geometry. Use QGIS Undo or roll
+curves. The course table, start point, units, scale and offset are saved in the
+QGIS project. Update COGO asks before it rewrites measurement fields on the
+active line layer. It never changes geometry. Use QGIS Undo or roll
 back the layer edits to reverse it. Save edits explicitly after review.</p>
 <p>CSV stores courses only, not CRS, coordinates, units, scale, or offset. Record
 these settings separately.</p>

@@ -7,8 +7,8 @@ from .engine import Course, angle, bearing, traverse
 
 NUMBER = r'(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?'
 UNIT = r"(?:us\s+survey\s+feet|international\s+feet|feet|foot|ft\.?|meters?|metres?|m\b|')"
-QUADRANT = re.compile(r'''\b(north|south|n|s)\s*(\d[\w\s.°:'"′″-]{0,100}?)\s*(?<![a-z])(east|west|e|w)\b''', re.I)
-CARDINAL = re.compile(r'\b(?:due\s+)?(north|south|east|west|n|s|e|w)\b', re.I)
+QUADRANT = re.compile(r'''\b(north|south|n|s)\.?\s*(\d[\w\s.°:'"′″-]{0,100}?)\s*(?<![a-z])(east|west|e|w)\b\.?''', re.I)
+CARDINAL = re.compile(r'\b(?:due\s+)?(north|south|east|west|n|s|e|w)\.?(?!\w)', re.I)
 POB = re.compile(r'\b(?:true\s+)?point\s+of\s+beginning\b|\b(?:T\.?\s*)?P\.?\s*O\.?\s*B\b\.?', re.I)
 SPLIT = re.compile(r';|\bthence\b|\b(?=containing\s+[\d.,]+\s+acres?\b)|\n(?=\s*(?:\d+[.)]\s*)?(?:north|south|east|west|[NSEW])(?:\b|(?=\d)))|(?<=[.!?])\s+(?=(?:north|south|east|west)\b|[NS]\s*\d)', re.I)
 
@@ -22,12 +22,30 @@ class LegalCall:
     issue: str = ''
 
 
+def _reject_packed(text):
+    """DD.MMSS is ambiguous next to a real decimal degree. The course grid still accepts it."""
+    match = re.fullmatch(r'(\d+)\.(\d{2})(\d{2})', str(text).strip())
+    if match and int(match.group(2)) < 60 and int(match.group(3)) < 60:
+        raise ValueError('%s looks like degrees and minutes. Write %s:%s:%s.' % (
+            match.group(0), match.group(1), match.group(2), match.group(3)))
+
+
+def units_match(stated, chosen):
+    if not stated:
+        return True
+    if stated == 'Feet (choose definition)':
+        return chosen in ('International feet', 'US survey feet')
+    return stated == chosen
+
+
 def _angle(text):
+    _reject_packed(text)
     text = re.sub(r'\b(?:degrees?|deg)\.?', ':', text, flags=re.I)
     text = re.sub(r'\b(?:minutes?|min)\.?', ':', text, flags=re.I)
     text = re.sub(r'\b(?:seconds?|sec)\.?', '', text, flags=re.I)
     text = text.translate(str.maketrans({'°': ':', "'": ':', '′': ':', '"': '', '″': ''}))
     text = re.sub(r'\s*:\s*', ':', text).strip(' :')
+    _reject_packed(text)
     angle(text)
     return text
 
@@ -92,12 +110,16 @@ def _curve(text, direction, begin):
     if len(turns) != 1:
         raise ValueError('Curve needs an explicit left or right turn.')
     prefix = text[:begin]
-    basis = re.search(r'\b(chord|tangent)\s+(?:bearing(?:\s+of)?|bears?)\s*[:=]?\s*$', prefix, re.I)
+    basis = re.search(
+        r'\b(?:whose\s+)?(chord|tangent)\s+(?:of\s+which\s+bears?|bearing(?:\s+of)?|bears?)\s*[:=]?\s*$',
+        prefix, re.I)
     if not basis:
         raise ValueError('Label the curve direction as chord bearing or tangent bearing.')
     radius = _measurement(text, r'\bradius\s*(?:of\s*)?[:=]?', 'radius')
     arc = _measurement(text, r'\barc\s*(?:length|distance)?\s*(?:of\s*)?[:=]?', 'arc length')
     chord = _measurement(text, r'\bchord\s*(?:length|distance)\s*(?:of\s*)?[:=]?', 'chord length')
+    if not chord and not arc and basis.group(1).lower() == 'chord':
+        chord = _measurement(text, r'\b(?:a\s+)?distance\s+(?:of\s+)?', 'chord length')
     delta_match = re.search(r'''\b(?:delta|central\s+angle)\s*(?:of\s*)?[:=]?\s*(\d[\d\s.°:'"′″-]*(?:(?:degrees?|minutes?|seconds?)\b[\d\s.°:'"′″-]*)*)''', text, re.I)
     delta = _angle(delta_match[1]) if delta_match else None
     if not radius or not (arc or chord or delta):

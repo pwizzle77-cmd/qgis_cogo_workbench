@@ -13,6 +13,7 @@ class EngineTests(unittest.TestCase):
             self.assertAlmostEqual(bearing(text), expected)
         for a in [0, 0.0001, 45.123456, 90, 135, 180, 225, 270, 359.999]:
             self.assertAlmostEqual(bearing(format_bearing(a)), a, places=5)
+        self.assertEqual([format_bearing(a) for a in (0, 90, 180, 270)], ['N', 'E', 'S', 'W'])
         for text in ['N91E', '361', '-5', 'NaN', 'N45:60E', '1.5:20', '45:20:60', 'north']:
             with self.subTest(text=text), self.assertRaises(ValueError):
                 bearing(text)

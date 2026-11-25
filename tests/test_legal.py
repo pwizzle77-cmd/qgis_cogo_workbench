@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 
 from cogo_workbench.engine import closure, traverse
-from cogo_workbench.legal import parse_description
+from cogo_workbench.legal import parse_description, units_match
 
 
 RECTANGLE = '''Beginning at a found iron rod;
@@ -35,6 +35,13 @@ class LegalTests(unittest.TestCase):
         self.assertAlmostEqual(closure(traverse((0, 0), courses), (0, 0))[2], 0, places=8)
         self.assertEqual(len(self.calls('North 45 degrees\n30 minutes East 10 meters\nSouth 45:30 West 10 meters')), 2)
         self.assertEqual(len(self.calls('N45E 10 feet. S45W 10 feet.')), 2)
+        dotted = self.calls('thence N. 45° 30\' 15" E., 100.00 feet; thence S. 45° 30\' 15" W., 100.00 feet')
+        self.assertEqual(dotted[0].direction, 'N45:30:15E')
+        self.assertEqual(dotted[0].distance, '100.00')
+        along = self.calls('thence run S. 00° 12\' 30" E. along the west line, a distance of 400.00 feet; '
+                           'thence N. 00° 12\' 30" W., 400.00 feet')
+        self.assertEqual(along[0].direction, 'S00:12:30E')
+        self.assertEqual(along[0].distance, '400.00')
 
     def test_commencement_excluded(self):
         text = 'Commencing at a monument; thence N10E 500 feet to the TRUE POINT OF BEGINNING; ' + RECTANGLE
@@ -112,6 +119,14 @@ class LegalTests(unittest.TestCase):
         course = self.calls('Thence curve to the right, radius 100 meters, delta 90 degrees 0 minutes 0 seconds, tangent bearing North 0 East')[0]
         self.assertEqual(course.measure, 'Delta')
         self.assertAlmostEqual(traverse((0, 0), [course])[0].arc, 50 * math.pi)
+        whose = self.calls('Thence along a curve to the right having a radius of 100 feet and whose chord bears '
+                           'North 45 degrees East a distance of 141.421356 feet')[0]
+        self.assertEqual((whose.basis, whose.measure, whose.side), ('Chord', 'Chord', 'R'))
+        bears = ('Thence along a curve to the right, having a radius of 100.00 feet, a central angle of 90 degrees, '
+                 'a chord distance of 141.42 feet, the chord of which bears North 45 degrees East')
+        course = self.calls(bears)[0]
+        self.assertEqual(course.basis, 'Chord')
+        self.assertAlmostEqual(traverse((0, 0), [course])[0].delta, 90, places=4)
         course = self.calls('Thence curve to the left, radius 100 feet, chord length 100 feet, chord bearing N45E')[0]
         self.assertEqual(course.measure, 'Chord')
         self.assertEqual(self.calls('Thence along the right-of-way on a curve to the left, radius 100 feet, chord length 100 feet, chord bearing N45E')[0].side, 'L')
@@ -138,11 +153,20 @@ class LegalTests(unittest.TestCase):
             'Commencing at a monument; thence N45E 100 feet',
             'Thence N45E 100 feet; thence along the lot line to the creek',
             'Thence N45E 100 feet; thence S45W 100 meters',
+            'Thence North 00.2013 West, 927.70 feet',
         ]:
             with self.subTest(text=text):
                 rows = parse_description(text)
                 self.assertTrue(any(row.issue for row in rows if row.phase == 'Boundary'), rows)
                 self.assertTrue(any(row.source for row in rows))
+
+    def test_packed_decimal_and_unit_choice(self):
+        rows = parse_description('Thence North 00.2013 West, 927.70 feet')
+        self.assertTrue(any('00:20:13' in row.issue for row in rows))
+        self.assertFalse(any(row.course for row in rows))
+        self.assertTrue(units_match('Feet (choose definition)', 'US survey feet'))
+        self.assertFalse(units_match('Meters', 'US survey feet'))
+        self.assertTrue(units_match('', 'Meters'))
 
     def test_explicit_and_inherited_units(self):
         rows = parse_description('Thence N45E 100 US survey feet; thence S45W 100')

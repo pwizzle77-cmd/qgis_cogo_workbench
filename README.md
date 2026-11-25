@@ -10,7 +10,7 @@ authentication config. The key is not stored in the plugin.
 ## Install
 
 1. In QGIS, open **Plugins → Manage and Install Plugins → Install from ZIP**.
-2. Select `dist/cogo_workbench-1.2.0.zip` from this repository.
+2. Select `dist/cogo_workbench-1.2.1.zip` from this repository.
 3. Enable **COGO Workbench**. Open it from the toolbar or **Vector → COGO Workbench**.
 
 Alternatively, copy the `cogo_workbench` directory into the active QGIS profile's
@@ -46,7 +46,7 @@ The curved example excludes a 500-foot commencement tie and maps a semicircle
 from the POB you supply. Source edits invalidate the extraction and review.
 
 Supported text includes written quadrant bearings (`North 45 degrees 30 minutes
-East`), symbol/colon/hyphen DMS, decimal quadrant bearings, cardinal directions,
+East`), symbol/colon/hyphen DMS, dotted letters (`N. 45° 30' 15" E.`), decimal quadrant bearings, cardinal directions,
 decimal distances and comma thousands separators. Separate calls with **thence**,
 semicolons, or separate lines that begin with a bearing. Wrapped prose stays
 together. Numbered lists and Markdown bold formatting are accepted. Calls can
@@ -60,9 +60,13 @@ Two distances in one clause stay unresolved. A description that says
 “For a point of beginning, commence at the corner, thence …” and returns to that
 point is the boundary, not a separate commencement tie.
 
+A four-digit fraction such as `North 00.2013 West` is rejected. Write `00:20:13`.
+On the course grid, `45.3030` is still decimal degrees.
+
 Curves require an explicit **curve to the right/left**, radius, **arc length**,
 **chord length/distance**, or **delta/central angle**, plus a labeled **chord
-bearing** or **tangent bearing**. Chord-only input selects the minor arc. When
+bearing**, **tangent bearing**, or **the chord of which bears**. A distance after
+that chord phrase is the chord length. Chord-only input selects the minor arc. When
 multiple curve dimensions are given, their agreement is checked: chord tolerance
 is the larger of 0.02 record units or 0.001%; delta tolerance is 1 arc-second.
 Conflicting dimensions are flagged. Multiple bearings in one clause are flagged
@@ -92,13 +96,17 @@ Basic authentication config whose password is the key. A custom
 OpenAI-compatible server is the third choice; use HTTPS unless it is on this
 computer.
 
+The description ends at the first “containing … acres” line, so a second lot stays out.
 The offline parser reads the description first. **Ask AI about unread calls**
 sends only the clauses the parser could not read, and only after you have a
 model selected. The model must quote the deed. A call is dropped when the quote
-is not in the text or a number in the call is not in the quote. Review every
-call, choose the record units, and **Load courses into Traverse**. Then set the
-point of beginning, **Preview / closure**, and **Create corner points**. No
-layer is created by the reader. Hosted models can charge for the request.
+is not in the text, a number in the call is not in the quote, or the bearing, turn,
+and chord or tangent are not in that quote. A quote with a second “thence” is dropped.
+Review every call, choose the record units, and **Load courses into Traverse**.
+Feet in the text still need international or US survey feet. A stated meter call
+will not load as feet. Then set the point of beginning, **Preview / closure**, and
+**Create corner points**. No layer is created by the reader. Page images are sent
+at the rendered size up to 4500 pixels. Hosted models can charge for the request.
 
 ## Traverse from a legal description
 
@@ -110,7 +118,8 @@ layer is created by the reader. Hosted models can charge for the request.
    1 and offset is 0. These are manual corrections, not automatic survey calibration.
 3. Add straight or curved courses in order. Use a quadrant bearing such as
    `N45:30:00E`, `S12°15'30"W`, or a clockwise-from-north decimal azimuth such as
-   `135.5`. `45.3030` is decimal degrees, never packed degrees/minutes/seconds.
+   `135.5`. On the course grid, `45.3030` is decimal degrees, never packed degrees/minutes/seconds.
+   Due east, north, south and west display as E, N, S and W. The course table is saved in the QGIS project.
 4. For a curve, specify a positive radius, R/L turn, tangent or chord bearing,
    and a value interpreted as **Arc** length, **Chord** length, or **Delta** angle.
    Delta accepts decimal degrees or separated DMS. Chord input uses the minor arc;
@@ -139,7 +148,7 @@ CRS, coordinates, units, scale and offset separately. The rectangle example is
 
 Activate a line layer, select the courses, and open **Update / Inverse**. Match
 the working CRS to the layer CRS and use the correct record units/scale/offset.
-**Update selected COGO lines** calculates attributes from current geometry. It
+**Update selected COGO lines** asks before it writes, then calculates attributes from current geometry. It
 does not rebuild geometry from attributes. The optional NULL-only mode preserves
 existing values. Clear NULL-only mode to consistently recalculate all values.
 

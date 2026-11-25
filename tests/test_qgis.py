@@ -19,6 +19,7 @@ APP.initQgis()
 class LayerTests(unittest.TestCase):
     def setUp(self):
         self.crs = QgsCoordinateReferenceSystem('EPSG:26917')
+        QgsProject.instance().removeEntry('CogoWorkbench', 'session')
 
     def make_layer(self):
         courses = [Course('Line', 'N45E', '100'), Course('Curve', 'N', '270', '20', 'Delta')]
@@ -310,8 +311,44 @@ class LayerTests(unittest.TestCase):
         dialog.deleteLater()
         dock.cleanup()
         dock.deleteLater()
+        self.session_roundtrip(canvas)
         QgsProject.instance().removeAllMapLayers()
         canvas.deleteLater()
+
+    def session_roundtrip(self, canvas):
+        from cogo_workbench.dock import CogoDock
+
+        class Iface:
+            def mainWindow(self):
+                return None
+
+            def mapCanvas(self):
+                return canvas
+
+        QgsProject.instance().removeEntry('CogoWorkbench', 'session')
+        dock = CogoDock(Iface())
+        dock.crs.setCrs(self.crs)
+        dock.table.setRowCount(0)
+        dock.add_course(Course('Line', 'N45E', '100'))
+        dock.units.setCurrentText('US survey feet')
+        dock.x.setText('500000')
+        dock.y.setText('1000000')
+        dock.scale.setValue(1.0002)
+        dock._save_session()
+        dock._restoring = True
+        dock.table.setRowCount(0)
+        dock.x.setText('0')
+        dock._restoring = False
+        dock._load_session()
+        self.assertEqual(dock.courses()[0].direction, 'N45E')
+        self.assertEqual(dock.courses()[0].distance, '100')
+        self.assertEqual(dock.units.currentText(), 'US survey feet')
+        self.assertEqual(dock.x.text(), '500000')
+        self.assertEqual(dock.crs.crs().authid(), 'EPSG:26917')
+        self.assertAlmostEqual(dock.scale.value(), 1.0002)
+        dock.cleanup()
+        dock.deleteLater()
+        QgsProject.instance().removeEntry('CogoWorkbench', 'session')
 
 
 if __name__ == '__main__':

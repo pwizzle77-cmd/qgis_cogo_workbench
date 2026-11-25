@@ -8,7 +8,7 @@ import re
 
 from .ai_client import AIError
 from .engine import Course, bearing, traverse
-from .legal import _angle
+from .legal import NUMBER, UNIT, _angle, _reject_packed, _unit
 
 OCR_PROMPTS = {
     "deepseek-ocr": "Free OCR.",
@@ -77,10 +77,16 @@ def ocr_prompt(model):
 
 
 def find_description(text):
-    """From the first 'Commence at' / 'Begin at' through the last point of beginning."""
+    """From the first 'Commence at' / 'Begin at' through the first acreage line.
+
+    A deed with no acreage line still ends at the last point of beginning.
+    """
     found = _START.search(text or "")
     if not found:
         return ""
+    acres = re.search(r'containing\s+[\d.,]+\s+acres?\b[^.;]*[.;]?', text[found.end():], re.I)
+    if acres:
+        return text[found.start():found.end() + acres.end()].strip()
     last = None
     for end in _END.finditer(text, found.end()):
         last = end
@@ -113,8 +119,32 @@ def _plain(value):
     return text or "0"
 
 
+def stated_unit(quote):
+    found = {_unit(item) for item in re.findall(UNIT, quote or "", re.I)}
+    concrete = found - {"Feet (choose definition)"}
+    if len(concrete) > 1 or not found:
+        return ""
+    return next(iter(concrete or found))
+
+
+def _words(quote, word):
+    return re.search(r'\b' + re.escape(word) + r'\b', _norm(quote)) is not None
+
+
+def _bearing_in_quote(quote, raw):
+    wanted = _norm(raw)
+    token = re.sub(r'[^a-z]', '', wanted)
+    if token in {"north", "south", "east", "west", "n", "s", "e", "w"}:
+        word = {"n": "north", "s": "south", "e": "east", "w": "west"}.get(token, token)
+        short = {"north": "n", "south": "s", "east": "e", "west": "w"}[word]
+        return _words(quote, word) or _words(quote, short)
+    return bool(wanted) and wanted in _norm(quote)
+
+
 def _direction(text):
     text = " ".join(str(text or "").split())
+    for part in re.findall(r'\d+\.\d{4}', text):
+        _reject_packed(part)
     try:
         bearing(text)
         return text
@@ -136,26 +166,41 @@ def check_call(call, text):
     quote = call.get("quote") or ""
     if not quote_in_text(quote, text):
         raise ValueError("its quote isn't in the deed text")
+    if len(re.findall(r'\bthence\b', quote, re.I)) > 1:
+        raise ValueError("quote covers more than one course")
+    word_unit = r'(?:us\s+survey\s+feet|international\s+feet|feet|foot|ft\.?|meters?|metres?|m\b)'
+    if call.get("kind") != "curve" and len(re.findall(rf'{NUMBER}\s*(?:{word_unit})', quote, re.I)) > 1:
+        raise ValueError("quote covers more than one distance")
     nums = _numbers(quote)
+    raw_bearing = " ".join(str(call.get("bearing", "")).split())
     try:
-        direction = _direction(call.get("bearing", ""))
+        direction = _direction(raw_bearing)
     except ValueError as error:
         raise ValueError(str(error)) from None
-    for number in _numbers(call.get("bearing", "")):
+    for number in _numbers(raw_bearing):
         if not _number_in(number, nums):
             raise ValueError("bearing number %g isn't in its quote" % number)
+    if not _bearing_in_quote(quote, raw_bearing):
+        raise ValueError("bearing isn't in its quote")
     if call.get("kind") == "curve":
         radius = call.get("radius")
         if radius is None or not _number_in(radius, nums):
             raise ValueError("curve radius missing or not in its quote")
         side = (call.get("side") or "").lower()
         if side in ("r", "right"):
-            turn = "R"
+            turn, turn_word = "R", "right"
         elif side in ("l", "left"):
-            turn = "L"
+            turn, turn_word = "L", "left"
         else:
             raise ValueError("curve has no left/right")
-        basis = "Tangent" if (call.get("bearing_is") or "").lower() == "tangent" else "Chord"
+        if not _words(quote, turn_word):
+            raise ValueError("quote does not say %s" % turn_word)
+        basis_word = (call.get("bearing_is") or "").lower()
+        if basis_word not in ("chord", "tangent"):
+            raise ValueError("curve must say chord or tangent bearing")
+        if not _words(quote, basis_word):
+            raise ValueError("quote does not say %s" % basis_word)
+        basis = "Tangent" if basis_word == "tangent" else "Chord"
         if call.get("arc_length") is not None and _number_in(call["arc_length"], nums):
             measure, value = "Arc", _plain(call["arc_length"])
         elif call.get("chord_length") is not None and _number_in(call["chord_length"], nums):
@@ -189,8 +234,8 @@ def checked_rows(answer, source):
         try:
             course = check_call(call, source)
             rows.append({"phase": "Boundary", "source": call.get("quote", ""), "course": course,
-                         "by": "AI", "note": ""})
+                         "by": "AI", "note": "", "unit": stated_unit(call.get("quote", ""))})
         except (ValueError, TypeError, AIError) as error:
             rows.append({"phase": "Boundary", "source": call.get("quote", ""), "course": None,
-                         "by": "AI", "note": "AI answer rejected: %s" % error})
+                         "by": "AI", "note": "AI answer rejected: %s" % error, "unit": ""})
     return rows

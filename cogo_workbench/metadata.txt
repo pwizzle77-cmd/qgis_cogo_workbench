@@ -3,7 +3,7 @@ name=COGO Workbench
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
 description=Coordinate geometry (COGO) tools: paste legal descriptions, read a deed with optional AI, enter traverses with circular curves, check closure and build parcels.
-version=1.2.0
+version=1.2.1
 author=Charles
 email=pwizzle77@gmail.com
 about=COGO Workbench brings an ArcGIS Pro style course-entry workflow to QGIS. Paste a metes-and-bounds legal description and review every extracted call against its source clause before loading, or enter bearings, distances and circular curves by hand. Optional deed reading sends page images to a local Ollama model, or to xAI (Grok) at https://api.x.ai when you supply XAI_API_KEY or a QGIS authentication config. Nothing is drawn until you review the calls. The plugin reports misclosure and precision, can apply a Bowditch (compass rule) adjustment, and writes boundary lines or parcel polygons with true circular arcs. Calculations are planar in a projected CRS with explicit ground-to-grid scale and rotation settings. Pure Python: QGIS, its bundled Qt and the standard library only. No extra packages. Independent of Esri.
@@ -11,6 +11,7 @@ tracker=https://github.com/pwizzle77-cmd/qgis_cogo_workbench/issues
 repository=https://github.com/pwizzle77-cmd/qgis_cogo_workbench
 homepage=https://github.com/pwizzle77-cmd/qgis_cogo_workbench
 changelog=
+    1.2.1 - Paste rejects packed decimals such as 00.2013 and reads N. 45° E. and "the chord of which bears". Deed checks require the bearing, turn, and chord or tangent to be in the quote, stop at the first acreage line, and refuse a unit the text does not state. Page images stay at the rendered size up to 4500 pixels. A missed PDF page stops the read. Update COGO asks before it rewrites fields. The course table is saved in the project. Due east, north, south and west are shown as E, N, S and W.
     1.2.0 - Running calls such as "West along the south line, 208 feet" read as one course; concave and convex curve wording closes when the curve is explicit; a rounding gap is snapped so clockwise and concave lots stay valid; optional deed reader loads reviewed courses from a page image via local Ollama or xAI (Grok)
     1.1.3 - Package files without executable permissions
     1.1.2 - Plugin repository packaging: icon, license, metadata links

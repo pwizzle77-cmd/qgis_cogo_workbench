@@ -51,6 +51,26 @@ class DeedAiTests(unittest.TestCase):
         self.assertEqual(course.direction, "W")
         self.assertEqual(course.distance, "208")
         self.assertTrue(quote_in_text(running, "  " + running.upper()))
+        with self.assertRaisesRegex(ValueError, "bearing isn't in its quote"):
+            check_call({"quote": running, "kind": "line", "bearing": "North", "distance": 208}, running)
+        tangent = ("thence along a curve to the right having a radius of 100.00 feet and an arc length of "
+                   "157.08 feet, tangent bearing North")
+        with self.assertRaisesRegex(ValueError, "left|chord or tangent"):
+            check_call({"quote": tangent, "kind": "curve", "bearing": "North", "radius": 100,
+                        "arc_length": 157.08, "side": "left"}, tangent)
+        both = running + "; thence North 100 feet"
+        with self.assertRaisesRegex(ValueError, "more than one course"):
+            check_call({"quote": both, "kind": "line", "bearing": "West", "distance": 208}, both)
+
+    def test_find_description_stops_at_the_first_lot(self):
+        two = ("Begin at the iron pin, thence North 100 feet to the point of beginning. "
+               "Containing 0.23 acres. Also: Begin at the oak, thence North 50 feet to the point of beginning. "
+               "Containing 0.06 acres.")
+        found = find_description(two)
+        self.assertIn("0.23 acres", found)
+        self.assertNotIn("oak", found)
+        bare = "Begin at the pin, thence North 10 feet to the point of beginning. Subject to a road."
+        self.assertNotIn("road", find_description(bare).lower())
 
     def test_clients_against_a_local_fake(self):
         class Handler(BaseHTTPRequestHandler):
@@ -70,6 +90,7 @@ class DeedAiTests(unittest.TestCase):
 
             def do_POST(self):
                 req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                Handler.last = req
                 if self.path.startswith("/api/chat"):
                     content = json.dumps({"calls": []}) if req.get("format") else "OCR TEXT"
                     body = {"message": {"content": content}}
@@ -95,6 +116,7 @@ class DeedAiTests(unittest.TestCase):
             self.assertEqual(hosted.list_models(), [XAI_MODEL])
             self.assertEqual(hosted.chat(XAI_MODEL, "read", ["aGk="]), "PAGE")
             self.assertEqual(hosted.chat_json(XAI_MODEL, "calls", {"type": "object"}), {"calls": []})
+            self.assertEqual(Handler.last.get("temperature"), 0)
         finally:
             server.shutdown()
             server.server_close()

@@ -155,7 +155,8 @@ class Client:
         if schema is not None:
             messages.insert(0, {"role": "system", "content": "Return only JSON matching this schema: "
                              + json.dumps(schema)})
-        data = self._request("/chat/completions", {"model": model, "messages": messages, "stream": False}, timeout)
+        data = self._request("/chat/completions",
+                             {"model": model, "messages": messages, "stream": False, "temperature": 0}, timeout)
         try:
             text = data["choices"][0]["message"]["content"]
             if isinstance(text, list):

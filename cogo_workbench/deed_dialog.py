@@ -24,11 +24,11 @@ from .ai_client import Client
 from .deed_ai import (CALL_SCHEMA, CALLS_PROMPT, FIND_PROMPT, checked_rows, find_description,
                       ocr_prompt, quote_in_text)
 from .engine import closure, traverse
-from .legal import parse_description
+from .legal import parse_description, units_match
 
 PREFIX = "CogoWorkbench/ai/"
 FILTER = "Deeds (*.pdf *.png *.jpg *.jpeg *.tif *.tiff);;All files (*)"
-UNITS = ("US survey feet", "International feet", "Meters", "CRS units")
+UNITS = ("Choose record units…", "US survey feet", "International feet", "Meters", "CRS units")
 
 
 def _saved(settings, provider):
@@ -145,6 +145,7 @@ class DeedReaderDialog(QDialog):
         self.units.addItems(UNITS)
         self.reviewed = QCheckBox("I checked every call against the deed")
         self.reviewed.toggled.connect(self._sync)
+        self.units.currentIndexChanged.connect(self._units_changed)
         load = QPushButton("Load courses into Traverse")
         load.clicked.connect(self._load)
         close = QPushButton("Close")
@@ -346,14 +347,16 @@ class DeedReaderDialog(QDialog):
         self.rows = []
         for row in parsed:
             self.rows.append({"phase": row.phase, "source": row.source, "course": row.course,
-                              "by": "Parser" if row.course else "", "note": row.issue})
+                              "by": "Parser" if row.course else "", "note": row.issue, "unit": row.unit})
         self._show()
 
-    def _describe(self, course):
+    def _describe(self, course, unit=""):
         if course.kind == "Curve":
-            return "Curve %s, %s %s, R %s, %s %s" % (
+            text = "Curve %s, %s %s, R %s, %s %s" % (
                 course.side, course.basis, course.direction, course.radius, course.measure, course.distance)
-        return "%s, %s" % (course.direction, course.distance)
+        else:
+            text = "%s, %s" % (course.direction, course.distance)
+        return text + (" (%s)" % unit if unit else "")
 
     def _show(self):
         self.table.setRowCount(0)
@@ -362,13 +365,13 @@ class DeedReaderDialog(QDialog):
             index = self.table.rowCount()
             self.table.insertRow(index)
             if row["course"] is not None and row["phase"] == "Boundary" and not row["note"]:
-                call, color = self._describe(row["course"]), QColor("#1b5e20")
+                call, color = self._describe(row["course"], row.get("unit", "")), QColor("#1b5e20")
             elif row["note"]:
                 call, color = row["note"], QColor("#b3261e")
                 if row["phase"] == "Boundary":
                     bad += 1
             elif row["phase"] != "Boundary" and row["course"] is not None:
-                call, color = "Excluded tie: " + self._describe(row["course"]), QColor("#666666")
+                call, color = "Excluded tie: " + self._describe(row["course"], row.get("unit", "")), QColor("#666666")
             else:
                 call, color = "Context, not a course", QColor("#666666")
             if row["by"] == "AI" and row["course"] is not None:
@@ -436,7 +439,8 @@ class DeedReaderDialog(QDialog):
                         self.rows[index]["note"] = "AI found no call in this clause."
                     elif len(built) == 1 and built[0]["course"] is not None:
                         self.rows[index].update(course=built[0]["course"], by="AI", note="",
-                                                source=built[0]["source"] or self.rows[index]["source"])
+                                                source=built[0]["source"] or self.rows[index]["source"],
+                                                unit=built[0].get("unit") or self.rows[index].get("unit", ""))
                     elif len(built) == 1:
                         self.rows[index]["note"] = built[0]["note"]
                     else:
@@ -445,18 +449,29 @@ class DeedReaderDialog(QDialog):
 
         self._run("Reading %d unread clause(s)" % len(sources), work, done)
 
+    def _units_changed(self):
+        self.reviewed.setChecked(False)
+        self._sync()
+
     def _sync(self):
-        ready = bool(getattr(self, "_courses", None))
+        ready = bool(getattr(self, "_courses", None)) and self.units.currentIndex() > 0
         self.reviewed.setEnabled(ready)
         self.load_btn.setEnabled(ready and self.reviewed.isChecked())
 
     def _load(self):
         courses = getattr(self, "_courses", None)
-        if not courses or not self.reviewed.isChecked():
-            QMessageBox.information(self, self.windowTitle(), "Check every call against the deed before loading.")
+        unit = self.units.currentText()
+        if not courses or not self.reviewed.isChecked() or self.units.currentIndex() == 0:
+            QMessageBox.information(self, self.windowTitle(), "Choose the record units and check every call against the deed.")
             return
+        for row in self.rows:
+            if row.get("phase") == "Boundary" and row.get("course") is not None and not row.get("note"):
+                if not units_match(row.get("unit") or "", unit):
+                    QMessageBox.warning(self, self.windowTitle(),
+                                        "Selected units disagree with the description: %s." % row.get("unit"))
+                    return
         try:
-            self.dock.load_courses(courses, self.units.currentText())
+            self.dock.load_courses(courses, unit)
         except ValueError as error:
             QMessageBox.warning(self, self.windowTitle(), str(error))
             return

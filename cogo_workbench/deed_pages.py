@@ -14,7 +14,8 @@ import tempfile
 from qgis.PyQt.QtCore import QBuffer, QByteArray, QIODevice, QSize, Qt, QT_VERSION
 from qgis.PyQt.QtGui import QImage, QImageReader
 
-MAX_SIDE = 1800
+# shortcut: longer than 4500 px is reduced. A 400 dpi letter page is about 4400 px and is left as rendered.
+MAX_SIDE = 4500
 
 
 class DeedReadError(RuntimeError):
@@ -93,7 +94,7 @@ def _pdf_gdal(path, dpi):
         mem = "/vsimem/cogo_deed_page.png"
         out = gdal.Translate(mem, src, format="PNG")
         if out is None:
-            continue
+            raise DeedReadError("Couldn't render PDF page %d." % (len(pages) + 1))
         out = None
         handle = gdal.VSIFOpenL(mem, "rb")
         gdal.VSIFSeekL(handle, 0, 2)
@@ -103,8 +104,9 @@ def _pdf_gdal(path, dpi):
         gdal.VSIFCloseL(handle)
         gdal.Unlink(mem)
         img = QImage.fromData(data)
-        if not img.isNull():
-            pages.append(_to_b64(img))
+        if img.isNull():
+            raise DeedReadError("Couldn't read PDF page %d." % (len(pages) + 1))
+        pages.append(_to_b64(img))
     return pages or None
 
 
@@ -132,6 +134,10 @@ def pdf_pages(path, dpi=200):
     for reader in (_pdf_qt, _pdf_gdal, _pdf_poppler):
         try:
             pages = reader(path, dpi)
+        except DeedReadError:
+            if reader is _pdf_gdal:
+                raise
+            pages = None
         except Exception:
             pages = None
         if pages:

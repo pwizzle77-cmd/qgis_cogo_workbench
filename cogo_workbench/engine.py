@@ -58,6 +58,8 @@ def format_bearing(azimuth):
     seconds = round(d * 3600, 2)
     degrees, seconds = divmod(seconds, 3600)
     minutes, seconds = divmod(seconds, 60)
+    if minutes == 0 and seconds == 0 and degrees in (0, 90):
+        return first if degrees == 0 else last
     return f"{first}{int(degrees):02d}°{int(minutes):02d}'{seconds:05.2f}\"{last}"
 
 
